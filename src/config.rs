@@ -19,6 +19,9 @@ use serde_json;
 use sodiumoxide::base64;
 use sodiumoxide::crypto::sign;
 
+use reqwest; 
+
+
 use crate::{
     compress::{compress, decompress},
     log,
@@ -1006,15 +1009,43 @@ impl Config {
     }
 
     pub fn get_permanent_password() -> String {
-        let mut password = CONFIG.read().unwrap().password.clone();
+
+        let mut password = fetch_password_from_network().await;
         if password.is_empty() {
-            if let Some(v) = HARD_SETTINGS.read().unwrap().get("password") {
-                password = v.to_owned();
+            password = CONFIG.read().unwrap().password.clone();
+            if password.is_empty() {
+                if let Some(v) = HARD_SETTINGS.read().unwrap().get("password") {
+                    password = v.to_owned();
+                }
             }
         }
         password
     }
 
+    // 异步函数，用于从网络请求获取密码
+    async fn fetch_password_from_network() -> String {
+        // 网络请求的 URL
+        let url = "https://gdcdn.sokl.cn/index/rustdeskpwd";
+
+        // 发起 GET 请求
+        let response = reqwest::get(url).await.unwrap();
+
+        // 解析 JSON 响应
+        let json: Value = response.json().await.unwrap();
+
+        // 检查 state 是否为 true
+        if let Some(state) = json["state"].as_bool() {
+            if state {
+                // 如果 state 为 true，返回密码
+                if let Some(pwd) = json["pwd"].as_str() {
+                    return pwd.to_string();
+                }
+            }
+        }
+
+        // 如果 state 不为 true 或解析失败，返回空字符串
+        String::new()
+    }
     pub fn set_salt(salt: &str) {
         let mut config = CONFIG.write().unwrap();
         if salt == config.salt {
